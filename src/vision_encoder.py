@@ -11,7 +11,23 @@ class Attention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config: VisionEncoderConfig):
         super.__init__()
-        pass
+        
+        self.fc1 = nn.Linear(config.hidden_dim, config.linear_dim)
+        self.fc2 = nn.Linear(config.linear_dim, config.hidden_dim)
+    
+    def forward(self, patch_embeddings):
+        # [B, 16, E]
+
+        # [B, 16, E] -> [B, 16, linear_Dim]
+        patch_embeddings = self.fc1(patch_embeddings)
+        
+        # gelu activation
+        patch_embeddings = nn.functional.gelu(patch_embeddings, approximate="tanh")
+
+        # [B, 16, linear_dim] -> [B, 16, E]
+        out = self.fc2(patch_embeddings)
+
+        return out
 
 
 class VisionEncoder(nn.Model):
