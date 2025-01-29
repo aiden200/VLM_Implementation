@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 from src.vision_model import VisionEncoderConfig
+from src.vision_embedding import VisionEmbeddings
 
 
 class VisionTransformer(nn.Model):

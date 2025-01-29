@@ -15,7 +15,7 @@ class VisionEncoderConfig:
         layer_norm_eps = 1e-6,
         attn_dropout = 0.2,
         num_img_tokens = None, # how many image embeddings per image
-        **kwargs
+        
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
