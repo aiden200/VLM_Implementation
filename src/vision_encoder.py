@@ -74,7 +74,7 @@ class MLP(nn.Module):
 
 class VisionEncoder(nn.Model):
     def __init__(self, config: VisionEncoderConfig):
-        super.__init__()
+        super().__init__()
         self.config = config
 
         self.n_transformer_layers = self.config.num_transformer_layers

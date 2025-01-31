@@ -7,7 +7,7 @@ from src.vision_encoder import VisionEncoder
 
 class VisionTransformer(nn.Model):
     def __init__(self, config: VisionEncoderConfig):
-        super.__init__()
+        super().__init__()
         
         self.config = config
         self.embed_dim = config.hidden_dim

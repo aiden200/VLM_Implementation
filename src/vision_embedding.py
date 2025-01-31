@@ -4,6 +4,8 @@ from src.vision_transformer import VisionEncoderConfig
 
 class VisionEmbeddings(nn.Module):
     def __init__(self, config: VisionEncoderConfig):
+        super().__init__()
+        
         self.config = config
         self.image_embed_dim = config.hidden_dim
         self.img_size = config.img_size
