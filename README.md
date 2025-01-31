@@ -24,6 +24,8 @@ The project is organized as follows:
 ── assets                           # Contains images for README
 ├── LICENSE
 ├── src
+│   ├── paligemma_processing.py     # File to build the input sequence for paligemma model
+│   ├── utils.py                    # Varies functions for the models to use
 │   ├── vision_embedding.py         # Patch embedding models
 │   ├── vision_encoder.py           # ViT Encoder
 │   ├── vision_model.py             # Overall VLM model
