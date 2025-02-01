@@ -5,6 +5,76 @@ from torch.nn import CrossEntropyLoss
 import math
 from src.vision_model import VisionEncoderConfig, VisionEncoderModel
 
+class GemmaConfig():
+    # From HF PaliGemma model, config.json file
+    def __init__(
+        self,
+        vocab_size,
+        hidden_size,
+        intermediate_size,
+        num_hidden_layers, # num of transformer layers
+        num_attn_layers, # number of query heads (Grouped query attention)
+        num_key_value_heads, # number of key & value heads (Grouped query attention)
+        head_dim=256,
+        max_positional_embedding=8192,
+        rms_norm_eps=1e-6,
+        rope_theta=10000.0,
+        attn_bias=False,
+        attn_dropout=0.0,
+        pad_token_id=None
+        ):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_attn_layers = num_attn_layers
+        self.num_key_value_heads = num_key_value_heads
+        self.head_dim = head_dim
+        self.max_positional_embedding = max_positional_embedding
+        self.rms_norm_eps = rms_norm_eps,
+        self.rope_theta = rope_theta,
+        self.attn_bias = attn_bias,
+        self.attn_dropout = attn_dropout,
+        self.pad_token_id = pad_token_id
+        
+        
+        
+
+
+class PaliGemmaConfig():
+    def __init__(
+        self,
+        vision_config=None,
+        text_config=None,
+        ignore_index=-100,
+        img_token_index=256000,
+        vocab_size=257152,
+        projection_dim=2048,
+        hidden_size=2048,
+        pad_token_id=None,
+        # kwargs**
+        ):
+        super().__init__()
+        
+        self.vision_config = VisionEncoderConfig(**vision_config)
+        self.text_config = GemmaConfig(**text_config, pad_token_id=pad_token_id)
+        self.vocab_size = self.text_config.vocab_size
+        self.text_config.num_img_tokens = (self.vision_config.img_size // self.vision_config.patch_size) ** 2
+        
+        self.ignore_index = ignore_index
+        
+        # <Image> token
+        self.img_token_index = img_token_index
+        # The linear projection dim of img tokens to embedding dim
+        self.projection_dim = projection_dim
+        # Language model embedding size
+        self.hidden_size = hidden_size,
+        self.pad_token_id = pad_token_id
+        
+        
+
+
 class PaliGemma(nn.Module):
     def __init__(self, config: PaliGemmaConfig):
         super().__init__()
@@ -17,4 +87,52 @@ class PaliGemma(nn.Module):
         self.language_model = GemmaForCausalLm(config.text_config)
         self.pad_token_id = self.config.pad_token_id if self.config.pad_token_id is not None else -1
     
+    def tie_weight(self):
+        return self.language_model.tie_weights()
     
+    def _merge_text_and_imgage_features(self, img_features, inputs_embedded, input_ids, attn_mask, kv_cache=None):
+        I_B, I_P, embed_dim = img_features.shape
+        T_B, sequence_length = input_ids.shape # the positions in the embedding
+        dtype, device = inputs_embedded.dtype, inputs_embedded.device
+        
+        # scaling [B, S, H] -> 
+        scaled_img_features = img_features / ()
+        
+    
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        pixel_values: torch.FloatTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        kv_cache: Optional[KVCache] = None
+    ) -> Tuple:
+        # No padding
+        assert torch.all(attention_mask == 1), "Padding has not yet been implemented"
+        
+        # D is the textual embedding size, E is the image embedding size
+        
+        # Embed the prompt
+        # [B, Seq_len, D]
+        inputs_embedded = self.language_model.get_input_embeddings()(input_ids)
+        
+        # Embed the image tokens
+        # [B, C, H, W] -> [B, 16, E]
+        img_features = self.vision_tower(pixel_values.to(inputs_embedded.dtype))
+        
+        # Project the image tokens to the textual embedding size, D
+        # [B, 16, E] -> [B, 16, D]
+        img_features = self.multi_modal_projector(img_features)
+        
+        # Combine the text and visual tokens
+        inputs_embedded, attention_mask, position_ids = self._merge_text_and_imgage_features(img_features, inputs_embedded, kv_cache)
+
+        # Now our input embeddings are multimodal and projected into the language model dimension
+        # Feed it through the "multimodal" transformer model to generate outputs
+        out = self.language_model(
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            inputs_embedded=inputs_embedded,
+            kv_cache=kv_cache
+        )
+        
+        return out
