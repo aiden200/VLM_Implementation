@@ -1,8 +1,8 @@
 # VLM_Implementation
 
-<!-- <div align="center">
-    <img src="assets/Stable Diffusion.png">
-</div> -->
+<div align="center">
+    <img src="assets/VLM.png">
+</div>
 
 <div align="center">
 
