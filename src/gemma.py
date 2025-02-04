@@ -90,13 +90,37 @@ class PaliGemma(nn.Module):
     def tie_weight(self):
         return self.language_model.tie_weights()
     
-    def _merge_text_and_imgage_features(self, img_features, inputs_embedded, input_ids, attn_mask, kv_cache=None):
+    def merge_txt_and_img_tokens(self, img_features, inputs_embedded, input_ids, attn_mask, kv_cache=None):
         I_B, I_P, embed_dim = img_features.shape
         T_B, sequence_length = input_ids.shape # the positions in the embedding
         dtype, device = inputs_embedded.dtype, inputs_embedded.device
         
-        # scaling [B, S, H] -> 
-        scaled_img_features = img_features / ()
+        # scaling [B, S, H] 
+        scaled_img_features = img_features / (self.config.hidden_size**.5)
+        
+        # Combine the tokens of the image and text
+        final_input_embedding = torch.zeros(T_B, sequence_length, embed_dim, dtype=dtype, device=device)
+        
+        # Anything not an image token or a pad token is good to go
+        text_mask = (input_ids != self.config.img_token_index) & (input_ids != self.pad_token_id)
+        
+        # Image mask
+        img_mask = (input_ids == self.config.img_token_index)
+        
+        # pad mask
+        pad_mask = (input_ids == self.config.pad_token_id)
+        
+        # Expand these masks to the dimension we specified (embed_dim)
+        text_mask = text_mask.unsqueeze(-1).expand(-1, -1, embed_dim)
+        img_mask = img_mask.unsqueeze(-1).expand(-1, -1, embed_dim)
+        pad_mask = pad_mask.unsqueeze(-1).expand(-1, -1, embed_dim)
+        
+        # Where the text mask is 1, copy the text token into it 
+        final_input_embedding = torch.where(text_mask, inputs_embedded, final_input_embedding)
+        # Can't use torch.where since scaled_img_featuers have different dimension
+        final_input_embedding = final_input_embedding.masked_scatter(img_mask, scaled_img_features)
+        final_input_embedding = torch.where(pad_mask, torch.zeros_like(final_input_embedding), final_input_embedding)
+        
         
     
     def forward(
@@ -124,7 +148,7 @@ class PaliGemma(nn.Module):
         img_features = self.multi_modal_projector(img_features)
         
         # Combine the text and visual tokens
-        inputs_embedded, attention_mask, position_ids = self._merge_text_and_imgage_features(img_features, inputs_embedded, kv_cache)
+        inputs_embedded, attention_mask, position_ids = self.merge_txt_and_img_tokens(img_features, inputs_embedded, kv_cache)
 
         # Now our input embeddings are multimodal and projected into the language model dimension
         # Feed it through the "multimodal" transformer model to generate outputs
