@@ -122,7 +122,19 @@ class PaliGemma(nn.Module):
         final_input_embedding = torch.where(pad_mask, torch.zeros_like(final_input_embedding), final_input_embedding)
         
         
-    
+        if kv_cache is None or kv_cache.num_items() == 0:
+            # No mask since our kv cache has nothing in it, create a tensor w/ mask
+            causal_mask = torch.full((T_B, sequence_length, sequence_length), fill_value=0, dtype=dtype, device=device)
+        else:
+            # We have the number of kv_cache items and we are adding in the query
+            kv_cache_length = kv_cache.num_items() + sequence_length
+            
+            causal_mask = torch.full((T_B, sequence_length, kv_cache_length), fill_value=0, dtype=dtype, device=device)
+        
+        # Add the number of attention heads
+        # [B, Q_Len, KV_Len] -> [B, Attn_Head, Q_Len, KV_Len]
+        causal_mask = causal_mask.unsqueeze(1)
+        
     def forward(
         self,
         input_ids: torch.LongTensor = None,
