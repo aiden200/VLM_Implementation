@@ -4,6 +4,7 @@ from typing import Optional, Tuple, List
 from torch.nn import CrossEntropyLoss
 import math
 from src.vision_model import VisionEncoderConfig, VisionEncoderModel
+from src.gemma_mm_projector import PaliGemmaMultiModalProjector
 
 class GemmaConfig():
     # From HF PaliGemma model, config.json file
@@ -81,7 +82,7 @@ class PaliGemma(nn.Module):
 
         self.config = config
         self.vision_tower = VisionEncoderModel(config.vision_config)
-        self.multi_modal_projector = PaliGemmaMMProjector(config)
+        self.multi_modal_projector = PaliGemmaMultiModalProjector(config)
         self.vocab_size = config.vocab_size
 
         self.language_model = GemmaForCausalLm(config.text_config)
@@ -94,6 +95,11 @@ class PaliGemma(nn.Module):
         I_B, I_P, embed_dim = img_features.shape
         T_B, sequence_length = input_ids.shape # the positions in the embedding
         dtype, device = inputs_embedded.dtype, inputs_embedded.device
+        '''
+        Based on the image token placeholders in inputs_embedded, we want to inject the image features in the correct place.
+        Then, we create an attention mask (0 indicates we are NOT masking out, we add -inf if we are masking)
+        Then we create 
+        ''' 
         
         # scaling [B, S, H] 
         scaled_img_features = img_features / (self.config.hidden_size**.5)
@@ -121,9 +127,12 @@ class PaliGemma(nn.Module):
         final_input_embedding = final_input_embedding.masked_scatter(img_mask, scaled_img_features)
         final_input_embedding = torch.where(pad_mask, torch.zeros_like(final_input_embedding), final_input_embedding)
         
-        
+
+        # During inference, the KV Cache only needs to access the final token, which is conditioned on all previous tokens, so we don't need to mask
+        # During training, we do need to mask out the true tokens
         if kv_cache is None or kv_cache.num_items() == 0:
             # No mask since our kv cache has nothing in it, create a tensor w/ mask
+            # PaliGemma's Text and Prefix tokens will ALWAYS be accessible
             causal_mask = torch.full((T_B, sequence_length, sequence_length), fill_value=0, dtype=dtype, device=device)
         else:
             # We have the number of kv_cache items and we are adding in the query
@@ -134,7 +143,19 @@ class PaliGemma(nn.Module):
         # Add the number of attention heads
         # [B, Q_Len, KV_Len] -> [B, Attn_Head, Q_Len, KV_Len]
         causal_mask = causal_mask.unsqueeze(1)
+
+        # Applying rotational position encoding
+        if kv_cache is not None and kv_cache.num_times() > 0:
+            # Saving the position in integers of each token -> [0, 1, 2, ..., 255, 256] - sequence length
+            position_ids = attn_mask.cumsum(-1)[:, -1]
+            if position_ids.dim() == 1:
+                position_ids = position_ids.unsqueeze(0)
+        else:
+            # Create position_ids based on the size of the attention mask
+            position_ids = (attn_mask.cumsum(-1)).masked_fill((attn_mask == 0), 1).to(device)
         
+        return final_input_embedding, causal_mask, position_ids
+
     def forward(
         self,
         input_ids: torch.LongTensor = None,
